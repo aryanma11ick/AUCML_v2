@@ -1,107 +1,125 @@
 "use client";
-import { useState } from "react";
-import axios from "axios";
 
-export default function Home() {
-  const [messages, setMessages] = useState<{ role: string; content: string; image?: string }[]>([]);
+import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
+
+export default function ChatPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll to bottom on update
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // Auth check
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) router.push("/login");
+      else setUser(data.user);
+    });
+  }, []);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
-    const newMessage = { role: "user", content: input };
-    setMessages((prev) => [...prev, newMessage]);
+    const newMessages = [...messages, { role: "user", content: input }];
+    setMessages(newMessages);
     setInput("");
     setLoading(true);
 
     try {
-      const response = await axios.post("http://localhost:8000/chat", {
-        message: input,
+      const res = await fetch("http://localhost:8000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: newMessages }),
       });
-
-      const data = response.data;
-
-      // If backend generated an image
-      if (data.triggered && data.image_base64) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.reply || "Here's your image!",
-            image: `data:image/png;base64,${data.image_base64}`,
-          },
-        ]);
-      } else {
-        // Normal text reply
-        setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
-      }
+      const data = await res.json();
+      setMessages([...newMessages, { role: "assistant", content: data.reply }]);
     } catch (err) {
       console.error(err);
-      setMessages((prev) => [...prev, { role: "assistant", content: "Error: Could not get reply." }]);
     } finally {
       setLoading(false);
     }
   };
 
+  const logout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6 flex flex-col space-y-4">
-        {/* Chat area */}
-        <div className="flex-1 overflow-y-auto max-h-[70vh] space-y-3">
-          {messages.map((m, i) => (
-            <div key={i}>
-              <div
-                className={`p-3 rounded-xl mb-1 ${
-                  m.role === "user"
-                    ? "bg-blue-500 text-white self-end"
-                    : "bg-gray-200 text-gray-800"
-                }`}
-              >
-                {m.content}
-              </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 p-6">
+      <Card className="w-full max-w-2xl shadow-xl border border-gray-300">
+        <CardHeader className="flex justify-between items-center">
+          <CardTitle className="text-lg font-semibold">AURA Chat</CardTitle>
+          <Button variant="outline" size="sm" onClick={logout}>Logout</Button>
+        </CardHeader>
+        <Separator />
 
-              {/* Image display */}
-              {m.image && (
-                <div className="flex flex-col items-center mt-2">
-                  <img
-                    src={m.image}
-                    alt="Generated"
-                    className="rounded-xl shadow-md max-w-sm"
-                  />
-                  <a
-                    href={m.image}
-                    download="generated_ad.png"
-                    className="mt-2 text-sm text-blue-600 underline hover:text-blue-800"
+        <CardContent className="flex flex-col h-[70vh]">
+          {/* Messages */}
+          <ScrollArea className="flex-1 pr-3">
+            <div className="space-y-4 py-2">
+              {messages.map((m, i) => (
+                <div key={i} className={`flex items-start gap-3 ${m.role === "user" ? "justify-end" : ""}`}>
+                  {m.role === "assistant" && (
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src="/bot.png" />
+                      <AvatarFallback>AI</AvatarFallback>
+                    </Avatar>
+                  )}
+
+                  <div
+                    className={`p-3 rounded-xl max-w-xs ${
+                      m.role === "user"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-200 text-gray-900"
+                    }`}
                   >
-                    Download image
-                  </a>
-                </div>
-              )}
-            </div>
-          ))}
-          {loading && <div className="text-gray-500 text-sm">Thinking...</div>}
-        </div>
+                    {m.content}
+                  </div>
 
-        {/* Input area */}
-        <div className="flex space-x-2">
-          <input
-            className="flex-1 border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            placeholder="Type your message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={loading}
-            className={`px-4 py-2 rounded-xl text-white transition ${
-              loading ? "bg-gray-400" : "bg-blue-500 hover:bg-blue-600"
-            }`}
-          >
-            Send
-          </button>
-        </div>
-      </div>
+                  {m.role === "user" && (
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src="/user.png" />
+                      <AvatarFallback>U</AvatarFallback>
+                    </Avatar>
+                  )}
+                </div>
+              ))}
+
+              {loading && (
+                <div className="text-gray-500 text-sm italic">AURA is typing...</div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+          </ScrollArea>
+
+          {/* Input */}
+          <div className="flex gap-2 mt-3">
+            <Input
+              className="flex-1"
+              placeholder="Type your message..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            />
+            <Button onClick={sendMessage}>Send</Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
