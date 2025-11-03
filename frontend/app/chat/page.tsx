@@ -2,13 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { LogOut } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { User as UserIcon, LogOut } from "lucide-react";
 
 type Msg = {
   role: "user" | "assistant";
@@ -18,24 +25,22 @@ type Msg = {
 
 export default function ChatPage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
       content:
-        "Hey — I'm AURA. Tell me about the product or say 'generate' when you want an image.",
+        "Hey — I'm AURA. Tell me about the product or say **generate** when you want an image.",
     },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll on messages/typing change
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // Auth check (client-side). Redirect if not logged in.
   useEffect(() => {
     let mounted = true;
     supabase.auth.getUser().then(({ data }) => {
@@ -55,7 +60,6 @@ export default function ChatPage() {
     if (!input.trim() || !user) return;
     const text = input.trim();
 
-    // Append user message
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
     setLoading(true);
@@ -66,6 +70,8 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: user.id, message: text }),
       });
+
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
       const data = await res.json();
       const replyText = data.reply ?? "No reply.";
@@ -78,19 +84,12 @@ export default function ChatPage() {
               content: replyText,
               imageBase64: data.image_base64,
             }
-          : {
-              role: "assistant",
-              content: replyText,
-            },
+          : { role: "assistant", content: replyText },
       ]);
-    } catch (err) {
-      console.error("Chat error:", err);
+    } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: "⚠️ Error: could not reach server.",
-        },
+        { role: "assistant", content: "⚠️ Error: could not reach server." },
       ]);
     } finally {
       setLoading(false);
@@ -106,13 +105,19 @@ export default function ChatPage() {
 
   const startNewChat = () => {
     setMessages([
-      { role: "assistant", content: "New chat started. Tell me about the product." },
+      {
+        role: "assistant",
+        content: "New chat started. Tell me about the product.",
+      },
     ]);
   };
 
-  const logout = async () => {
-    await supabase.auth.signOut();
-    router.push("/auth");
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      router.push("/auth");
+    }
   };
 
   const downloadBase64 = (b64: string, filename = "aura_image.png") => {
@@ -125,9 +130,9 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-gray-50 to-white">
+    <div className="min-h-screen flex bg-white">
       {/* Sidebar */}
-      <aside className="w-72 min-h-screen border-r bg-white/80 p-6 flex flex-col gap-6">
+      <aside className="w-72 min-h-screen border-r bg-white p-6 flex flex-col gap-6">
         <div>
           <h1 className="text-2xl font-bold text-purple-600">AURA</h1>
           <p className="text-xs text-gray-500">Creative Ad Assistant</p>
@@ -139,11 +144,11 @@ export default function ChatPage() {
           </Button>
         </div>
 
-        {/* ✅ Removed old logout button here */}
+        {/* ✅ Email stays, logout removed */}
         <div className="mt-auto">
           <Separator />
           <div className="mt-3">
-            <p className="text-sm font-medium">{user?.email ?? "Guest"}</p>
+            <p className="text-sm font-medium text-gray-800">{user?.email ?? "Guest"}</p>
             <p className="text-xs text-gray-500">Logged in</p>
           </div>
         </div>
@@ -151,20 +156,33 @@ export default function ChatPage() {
 
       {/* Chat area */}
       <main className="flex-1 flex flex-col">
-        {/* ✅ NEW Header with Logout */}
-        <div className="flex items-center justify-between px-6 py-3 border-b bg-white/80 backdrop-blur-sm">
-          <h2 className="text-lg font-semibold text-purple-600">Chat</h2>
-          <Button
-            variant="outline"
-            onClick={logout}
-            className="flex items-center gap-2 text-red-600 border-red-300 hover:bg-red-50"
-          >
-            <LogOut className="h-4 w-4" /> Logout
-          </Button>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+          <div className="text-lg font-semibold text-gray-800">AURA Chat</div>
+
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-gray-600 hidden md:block">{user?.email}</div>
+
+            {/* ✅ Only logout menu now */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
+                  <UserIcon className="w-5 h-5 text-gray-700" />
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent className="w-40 mr-2">
+                <DropdownMenuItem onClick={handleLogout} className="flex items-center gap-2">
+                  <LogOut className="w-4 h-4" /> Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
+        {/* Messages */}
         <div className="flex-1 overflow-hidden">
-          <ScrollArea className="h-[calc(100vh-140px)] p-6">
+          <ScrollArea className="h-[calc(100vh-200px)] p-6 bg-white">
             <div className="space-y-4 max-w-3xl mx-auto">
               {messages.map((m, i) => {
                 const isUser = m.role === "user";
@@ -174,9 +192,11 @@ export default function ChatPage() {
                     className={`flex items-start gap-3 ${isUser ? "justify-end" : "justify-start"}`}
                   >
                     {!isUser && (
-                      <Avatar className="h-9 w-9 bg-purple-50 text-purple-600">
-                        <AvatarFallback>A</AvatarFallback>
-                      </Avatar>
+                      <div className="flex-shrink-0">
+                        <Avatar className="h-9 w-9 bg-purple-50 text-purple-600">
+                          <AvatarFallback>A</AvatarFallback>
+                        </Avatar>
+                      </div>
                     )}
 
                     <div
@@ -186,16 +206,21 @@ export default function ChatPage() {
                           : "bg-gray-100 text-gray-900"
                       }`}
                     >
-                      <div className="prose prose-sm break-words">{m.content}</div>
+                      <div className="prose prose-sm break-words">
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                      </div>
 
                       {m.imageBase64 && (
                         <div className="mt-3">
-                          <img
-                            src={`data:image/png;base64,${m.imageBase64}`}
-                            alt="generated"
-                            className="rounded-lg shadow-md max-w-full"
-                          />
-                          <div className="mt-2">
+                          <div className="rounded-lg overflow-hidden shadow-sm bg-white border">
+                            <img
+                              src={`data:image/png;base64,${m.imageBase64}`}
+                              alt="generated"
+                              className="w-full object-contain"
+                            />
+                          </div>
+
+                          <div className="mt-2 flex gap-2">
                             <Button size="sm" onClick={() => downloadBase64(m.imageBase64)}>
                               Download PNG
                             </Button>
@@ -227,6 +252,7 @@ export default function ChatPage() {
           </ScrollArea>
         </div>
 
+        {/* Input */}
         <div className="p-4 border-t bg-white">
           <div className="max-w-3xl mx-auto flex items-center gap-3">
             <Input
